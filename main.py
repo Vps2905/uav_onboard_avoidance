@@ -1,9 +1,12 @@
 import sys, os
+import argparse
+from pathlib import Path
 import cv2
 import numpy as np
 
-sys.path.append("src")
-sys.path.append("utils")
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/"src"))
+sys.path.insert(0,str(ROOT/"utils"))
 
 from optical_flow import compute_optical_flow, draw_flow
 from kalman_tracker import KalmanObstacleTracker
@@ -11,7 +14,10 @@ from trajectory_predictor import predict_future_position
 from reroute_planner import generate_reroute
 from helpers import euclidean_distance
 
-video_path = "data/test_video.mp4"
+parser=argparse.ArgumentParser(description="Offline image-plane obstacle prototype")
+parser.add_argument("--video",default=str(ROOT/"data/test_video.mp4"))
+args=parser.parse_args()
+video_path=args.video
 cap = cv2.VideoCapture(video_path)
 
 trackers = [KalmanObstacleTracker(), KalmanObstacleTracker()]
@@ -22,6 +28,11 @@ if not cap.isOpened():
     exit()
 
 ret, prev_frame = cap.read()
+if not ret:
+    cap.release()
+    raise SystemExit("Video has no readable first frame")
+fps=cap.get(cv2.CAP_PROP_FPS)
+dt=1.0/fps if np.isfinite(fps) and fps>0 else 1.0/30.0
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -47,15 +58,15 @@ while cap.isOpened():
                 detected.append((cx, cy))
 
     for i, obj in enumerate(detected[:2]):
-        pred = trackers[i].update(obj)
-        future = predict_future_position(pred, [1, 0], 1.5)
+        pred = trackers[i].update(obj, dt=dt)
+        future = predict_future_position(pred, trackers[i].velocity, 1.5)
 
         cv2.circle(vis, obj, 8, (0, 0, 255), 2)
         cv2.circle(vis, tuple(pred.astype(int)), 8, (0, 255, 255), 2)
 
         distance = euclidean_distance(current_position, future)
         if distance < 100:
-            reroute = generate_reroute(current_position)
+            reroute = generate_reroute(current_position, future)
             cv2.putText(vis, f"Rerouting#{i+1} to: {reroute}", (10, 40 + i*30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             cv2.circle(vis, tuple(map(int, reroute)), 10, (255, 0, 0), -1)
 
@@ -67,3 +78,4 @@ while cap.isOpened():
 
 cap.release()
 cv2.destroyAllWindows()
+

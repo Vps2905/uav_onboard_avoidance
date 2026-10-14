@@ -11,3 +11,4 @@ def run_avoidance_logic(current_position, detected_object):
     if euclidean_distance(current_position, future) < 5:
         return generate_reroute(current_position)
     return current_position
+
